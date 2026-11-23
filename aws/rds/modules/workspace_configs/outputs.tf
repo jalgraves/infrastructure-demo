@@ -17,10 +17,10 @@ variable "remote_state_bucket" {
 }
 
 locals {
-  bucket_name  = var.remote_state_bucket != null ? var.remote_state_bucket : "${local.account_name}-remote-state"
-  account_role = split("-", var.workspace)[0]
-  region_code  = split("-", var.workspace)[1]
-  account_name = "${local.account_role}-${local.region_code}"
+  remote_state_bucket = var.remote_state_bucket != null ? var.remote_state_bucket : "${local.account_name}-remote-state"
+  account_role        = split("-", var.workspace)[0]
+  region_code         = split("-", var.workspace)[1]
+  account_name        = "${local.account_role}-${local.region_code}"
   regions = {
     "ape1" = "ap-east-1"
     "cac1" = "ca-central-"

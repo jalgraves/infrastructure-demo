@@ -2,13 +2,15 @@
 
 ## Purpose and Scope
 
-This document describes the Terraform-managed AWS infrastructure under `aws/`. The directory contains three root stacks:
+This document describes the Terraform-managed AWS infrastructure under `aws/`. It contains three configured Terraform roots and two additional, partially wired infrastructure areas:
 
 - `organization/` manages the AWS Organization, organizational units, member accounts, and per-account region restrictions.
 - `vpc/` manages regional VPCs, subnets, route tables, NAT and internet gateways, security groups, and VPC peering.
+- `ecs/` defines regional ECS/Fargate services, their VPC networking, load balancer, and an API Gateway HTTP API with a VPC Link.
+- `route53/` declares primary/secondary DNS failover records for the regional API endpoints; hosted-zone and health-check wiring is not complete.
 - `rds/` contains database workspace configuration and a reusable Aurora cluster module. Its root deployment wiring is currently incomplete; see [Current-State Caveats](#current-state-caveats).
 
-The root stacks use Terraform workspaces to select account- and region-specific configuration. The AWS provider is constrained to major version 6 (`~> 6.0`); the VPC and organization roots use an S3 backend configured through workspace HCL files.
+The organization, VPC, ECS, and RDS configuration use Terraform workspaces to select account- and region-specific values. The AWS provider is version 6 across configured roots; most use a `~> 6.0` constraint, while `ecs/` pins version `6.24.0`. The organization, VPC, and ECS roots use an S3 backend configured through workspace HCL files. The Route 53 directory currently has only a record file and no root provider/backend configuration.
 
 ## Logical Architecture
 
@@ -27,11 +29,14 @@ flowchart TD
   Data --> DataAccounts[Data member accounts]
   APIAccounts --> APIVPCs[Regional API VPCs]
   DataAccounts --> DataVPCs[Regional data VPCs]
+  APIAccounts --> ECSStacks[Regional ECS and API Gateway stacks]
+  ECSStacks -->|planned connectivity; must be wired| DataVPCs
   APIVPCs <-->|Configured VPC peering| DataVPCs
+  DNS[Route 53 failover] --> ECSStacks
   DataVPCs --> Aurora[Aurora module / RDS stack]
 ```
 
-The diagram shows the intended layering. The Aurora module is reusable, but its current RDS root stack does not yet derive its inputs from the network state and workspace database configuration.
+The diagram distinguishes the existing VPC-peering network from the newer ECS VPCs. The ECS root currently creates its own VPCs, separate from the VPCs in `vpc/`; the ECS VPCs do not yet have routes/peering to the data VPCs. The Aurora module is reusable, but its current RDS root stack does not yet derive its inputs from the network state and workspace database configuration.
 
 ## Organization and Accounts
 
@@ -49,6 +54,20 @@ The [organization stack](organization/organization.tf) creates an AWS Organizati
 The stack attaches a region-deny service control policy to every listed account. The policy denies requests outside that account's allowed region, subject to a broad list of `NotAction` exceptions for global or account-level services. Account email addresses are required Terraform inputs. The organization resource has `prevent_destroy` enabled.
 
 The organization provider is fixed to `us-east-1`. Default tags identify Terraform as the provisioner and record the selected workspace. The stack exports created account IDs.
+
+## Data Residency
+
+The design intent is to keep each region's event data and database storage in that region. The organization configuration places data accounts in named regions and attaches a region-deny SCP. The data VPCs and database workspaces are also region-specific. These controls support regional separation, but they do not by themselves guarantee data residency: an SCP controls AWS API requests by region, while VPC peering and application requests can still transfer data across regions.
+
+| Data or operation | Residency approach |
+| --- | --- |
+| Event payloads, video clips, and regional database records | Keep the source of truth in the originating regional data account/VPC. Do not configure cross-region database replication unless separately approved. |
+| API reads and writes | Route each operation to the database region that owns the record. Writes remain in that region. A read response containing event payload or personal data is still a cross-region transfer if served by an API running elsewhere. |
+| API failover | Route 53 may move API processing between `us-east-1` and `eu-west-1`, but it must not move or replicate the data. Define whether failover may return sensitive data across borders; if not, restrict failover to metadata or reject requests that cannot be served within the permitted region. |
+| Logs, metrics, and traces | Keep telemetry free of event payloads, video, credentials, and direct identifiers. The exercise permits centralizing non-PII monitoring data; sanitize before export and restrict access to the central destination. |
+| Secrets and backups | Keep database credentials, backups, and snapshots in the applicable region. Use region-local Secrets Manager and KMS resources unless a documented policy explicitly permits cross-region use. |
+
+VPC peering and security groups provide network reachability, not a residency policy. Enforce the policy in the API/data-access layer by selecting the owning regional database, limiting returned fields, and auditing cross-region access. The current cross-region API/VPC connectivity is still incomplete, so the intended residency rules need to be applied when those routes and API integrations are wired.
 
 ## VPC Network
 
@@ -168,6 +187,56 @@ Peering configuration currently uses static VPC IDs, peer account IDs, CIDRs, an
 
 The VPC root exports VPC IDs and CIDRs, subnet and route-table objects, and peering connection details. These outputs are intended to be consumed by other stacks through remote state.
 
+## ECS API Tier, API Gateway, and DNS Failover
+
+The [ECS root](ecs/ecs.tf) has regional workspace configurations for `api-use1-ecr` and `api-euw1-ecr`. Each configuration describes an API service image, port, health-check path, desired task count, capacity provider, and Secrets Manager values. The root defines ECS clusters, Fargate task definitions and services, task-execution permissions, private Cloud Map service discovery, and CloudWatch log groups. Image URIs point to ECR repositories; this stack consumes those images rather than defining ECR repositories.
+
+The [API Gateway configuration](ecs/api_gateway.tf) creates an HTTP API and a VPC Link in the ECS stack's private subnets. Its HTTP proxy integration targets the HTTPS listener ARN of the ECS stack's ALB, and a `$default` route forwards requests to that integration. The API Gateway stage auto-deploys. The intended request path is:
+
+```mermaid
+flowchart LR
+  client[Internal API client]
+  dns[Route 53 failover name]
+
+  subgraph use1[Primary API stack: api-use1]
+    apigw1[HTTP API]
+    link1[VPC Link]
+    alb1[ALB HTTPS listener]
+    ecs1[ECS Fargate service]
+    ecr1[ECR image]
+    apigw1 --> link1 --> alb1 --> ecs1
+    ecr1 -. image pulled by task .-> ecs1
+  end
+
+  subgraph euw1[Secondary API stack: api-euw1]
+    apigw2[HTTP API]
+    link2[VPC Link]
+    alb2[ALB HTTPS listener]
+    ecs2[ECS Fargate service]
+    ecr2[ECR image]
+    apigw2 --> link2 --> alb2 --> ecs2
+    ecr2 -. image pulled by task .-> ecs2
+  end
+
+  client --> dns
+  dns -->|primary while healthy| apigw1
+  dns -.->|failover| apigw2
+  ecs1 -.->|database routes/peering required| regionalDBs[Regional data VPCs and databases]
+  ecs2 -.->|database routes/peering required| regionalDBs
+```
+
+The [Route 53 file](route53/failover.tf) expresses an internal DNS name with a primary `api-use1` alias and secondary `api-euw1` alias. Failover is intended to select the healthy regional API endpoint; it does not replicate data or provide a path to a database that the surviving API stack cannot reach. DNS failover is resolver-cached and does not migrate existing connections, so clients need retry behavior.
+
+For private API health, the design should use a probe that runs with network access to each API endpoint, publishes a readiness metric, and drives a CloudWatch alarm-backed Route 53 health check. Route 53 health checkers cannot directly probe private VPC endpoints. The check should exercise API readiness and the dependencies required to serve the intended request, not merely test that a task is running.
+
+For an internal-only service, the target architecture is an internal ALB and private ECS tasks. The current [ALB configuration](ecs/alb.tf) is internet-facing and its security group accepts ports 80/443 from `0.0.0.0/0`; the ECS service configuration currently sets `assign_public_ip = true`. The API Gateway VPC Link is present, but these settings do not restrict access to API Gateway alone.
+
+The HTTP API currently has no authorizer configured. Add a JWT authorizer (for example, backed by the organization's identity provider/Cognito) before exposing it to clients. If the design requires AWS WAF directly on API Gateway, use a Regional REST API instead; the current HTTP API does not provide that attachment. A separately managed WAF-capable edge layer is another design option.
+
+## Cross-Stack Data Access
+
+The database network design and ECS service network are currently separate. The VPC root creates regional API VPCs with CIDRs `10.1.0.0/16` and `10.2.0.0/16`, and data VPCs with `10.3.0.0/16` through `10.6.0.0/16`. The ECS root independently creates a VPC using `10.0.0.0/16` in each ECS workspace. The current ECS resources do not consume the VPC root's outputs or define peering/routes to the regional data VPCs. To implement the packet's data-access flow, either place ECS into the existing API VPCs or add explicit, non-overlapping network connections and routes from each ECS VPC to the required regional data VPCs, plus tightly scoped database security-group ingress.
+
 ## Aurora and RDS
 
 The reusable [Aurora module](rds/modules/aurora/README.md) creates a provisioned Aurora MySQL or Aurora PostgreSQL cluster, a DB subnet group, and a configurable number of cluster instances. Callers provide the engine/version, instance class, private subnet IDs, security group IDs, and master username. The module does not create the VPC, database security groups, or network routes.
@@ -184,7 +253,7 @@ The [RDS workspace configuration module](rds/modules/workspace_configs/outputs.t
 
 ## Terraform State and Operations
 
-The organization and VPC roots declare an S3 backend. Each has workspace HCL files containing the state bucket, key, and backend region. The root [AWS Makefile](Makefile) provides targets for initialization, planning, applying, workspace selection, validation, and destruction; it selects the workspace and account profile through make variables and passes per-account variable files from `~/tfvars/`.
+The organization, VPC, and ECS roots declare an S3 backend. Each has workspace HCL files containing the state bucket, key, and backend region. The root [AWS Makefile](Makefile) provides targets for initialization, planning, applying, workspace selection, validation, and destruction; it selects the workspace and account profile through make variables and passes per-account variable files from `~/tfvars/`. The Route 53 stack needs provider/backend/workspace configuration before it can use the same workflow.
 
 Typical workflow for an existing VPC workspace:
 
@@ -200,9 +269,13 @@ Review the selected workspace, AWS profile, variable file, and plan before apply
 
 These are observed configuration conditions, not intended architecture:
 
-1. The RDS root [rds.tf](rds/rds.tf) currently uses example subnet/security-group IDs and an `<supported-version>` placeholder, and hard-codes the same cluster identifier and other Aurora inputs inside a `for_each`. It does not map each configured database to its own module inputs.
-2. The RDS root declares a VPC remote-state data source, but the current Aurora module call does not use its outputs. The RDS directory also lacks the provider/backend declarations present in the organization and VPC roots, so its standard workspace init workflow needs to be completed.
-3. The RDS workspace region lookup for `cac1` contains `ca-central-` rather than `ca-central-1`.
-4. The static peering and security-group CIDRs, peer account IDs, and AWS resource IDs should be reviewed against the live environment before applying. Workspace configurations are not a substitute for validating current account ownership and connectivity.
+1. The ECS ALB/task stack needs configuration-to-resource wiring completed. The workspace examples do not define every field consumed by the ECS resources (including service subnet and VPC IDs); `alb.tf` references `local.services`, and the ECS task definition uses a composite `cluster:service` key while the service lookup uses only the service name. The target group's composite key also differs from the configured container name used by the task definition. Run `terraform validate`/`plan` after aligning these shapes.
+2. The ECS VPCs are independent of the VPC root and currently use the same `10.0.0.0/16` CIDR in each region. They have no configured peering/routes to the regional data VPCs. The current public ALB, public task IPs, and broad ALB ingress also need to be reconciled with the intended API Gateway-only ingress.
+3. The API Gateway HTTP API route has no authorizer; the API currently has a default execute-api endpoint and no custom-domain resource in `api_gateway.tf`. Add authorization and decide whether the API is private or publicly reachable before treating it as an internal endpoint.
+4. The Route 53 failover records reference `aws_route53_health_check.api_use1` and `aws_route53_health_check.api_euw1`, but no health-check resources are defined. The `route53/` directory also has no hosted-zone resource, provider/backend/workspace configuration, or declarations for `hosted_zone_id` and endpoint alias inputs. The example name is under `internal.example.com`; supply a real private hosted zone and associate the client VPCs (cross-account authorization is needed where applicable).
+5. The RDS root [rds.tf](rds/rds.tf) currently uses example subnet/security-group IDs and an `<supported-version>` placeholder, and hard-codes the same cluster identifier and other Aurora inputs inside a `for_each`. It does not map each configured database to its own module inputs.
+6. The RDS root declares a VPC remote-state data source, but the current Aurora module call does not use its outputs. The RDS directory also lacks the provider/backend declarations present in the organization and VPC roots, so its standard workspace init workflow needs to be completed.
+7. The RDS workspace region lookup for `cac1` contains `ca-central-` rather than `ca-central-1`.
+8. The static peering and security-group CIDRs, peer account IDs, and AWS resource IDs should be reviewed against the live environment before applying. Workspace configurations are not a substitute for validating current account ownership and connectivity.
 
 Resolve these items and run a plan for each affected workspace before treating those configurations as deployable.
