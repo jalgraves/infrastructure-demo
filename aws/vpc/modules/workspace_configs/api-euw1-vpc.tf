@@ -85,9 +85,7 @@ locals {
               }
             }
           }
-
         }
-
         peering_connections = {
           accept = {
             data-cac1 = {
@@ -119,8 +117,8 @@ locals {
             ingress = [
               {
                 description      = "Allow all traffic within the private CIDR. Created via Terraform workspace ${terraform.workspace}"
-                from_port        = 0
-                to_port          = 0
+                from_port        = 3000
+                to_port          = 3000
                 protocol         = "tcp"
                 cidr_blocks      = ["10.3.0.0/16", "10.4.0.0/16", "10.5.0.0/16", "10.6.0.0/16"]
                 ipv6_cidr_blocks = null
