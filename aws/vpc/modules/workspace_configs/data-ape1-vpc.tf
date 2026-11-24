@@ -2,12 +2,15 @@
 # |*|*|*|*| |J|A|L|G|R|A|V|E|S| |*|*|*|*|
 # +-+-+-+-+ +-+-+-+-+-+-+-+-+-+ +-+-+-+-+
 
+# VPC configurations specific to the data-ape1 environment are defined here.
+
 locals {
   data-ape1-vpc = {
     account_name = "data-ape1"
     region       = "ap-east-1"
     region_code  = "ape1"
     vpcs = {
+      # The key for each VPC will be used as the VPC name
       data-ape1-01 = {
         ipv4 = {
           cidr_block                                  = "10.3.0.0/16"

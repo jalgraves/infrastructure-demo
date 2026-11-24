@@ -2,12 +2,15 @@
 # |*|*|*|*| |J|A|L|G|R|A|V|E|S| |*|*|*|*|
 # +-+-+-+-+ +-+-+-+-+-+-+-+-+-+ +-+-+-+-+
 
+# VPC configurations specific to the api-euw1 environment are defined here.
+
 locals {
   api-euw1-vpc = {
     account_name = "api-euw1"
     region       = "eu-west-1"
     region_code  = "euw1"
     vpcs = {
+      # The key for each VPC will be used as the VPC name
       api-euw1-01 = {
         ipv4 = {
           cidr_block                                  = "10.1.0.0/16"

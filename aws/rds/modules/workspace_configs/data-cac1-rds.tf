@@ -7,18 +7,15 @@ locals {
     region = "ca-central-1"
     databases = {
       psql = {
-        # admin_user is the key that points to actual db username for admin
-        admin_password_required         = true
-        admin_user                      = "hqos_postgresql_db_root_user"
+        admin_user                      = "db_admin"
         allowed_cidr_blocks             = []
         auto_minor_version_upgrade      = false
         backtrack_window                = null
         cluster_family                  = "aurora-postgresql12"
-        cluster_identifier              = "preprod-use1-psql"
+        cluster_identifier              = "data-cac1"
         cluster_parameters              = []
         cluster_size                    = 1
         deletion_protection             = false
-        dns                             = { labels = ["psql"] }
         enable_global_write_forwarding  = false
         enabled                         = true
         enabled_cloudwatch_logs_exports = ["postgresql"]
@@ -30,9 +27,10 @@ locals {
         performance_insights_enabled    = true
         port                            = 5432
         retention_period                = 7
-        secrets_manager_password_key    = "psql_db_root_pass"
         serverless                      = { enabled = false }
         storage_encrypted               = true
+        subnet_ids                      = data.terraform_remote_state.vpc.outputs.vpcs["data-cac1-01"].subnet_ids
+        vpc_security_group_ids          = data.terraform_remote_state.vpc.outputs.vpcs["data-cac1-01"].vpc_security_group_ids
         kms_key = {
           is_primary = false
           name       = null

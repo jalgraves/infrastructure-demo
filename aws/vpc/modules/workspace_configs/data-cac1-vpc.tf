@@ -2,6 +2,8 @@
 # |*|*|*|*| |J|A|L|G|R|A|V|E|S| |*|*|*|*|
 # +-+-+-+-+ +-+-+-+-+-+-+-+-+-+ +-+-+-+-+
 
+# VPC configurations specific to the data-cac1 environment are defined here.
+
 locals {
   data-cac1-vpc = {
     account_name = "data-cac1"

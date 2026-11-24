@@ -2,6 +2,8 @@
 # |*|*|*|*| |J|A|L|G|R|A|V|E|S| |*|*|*|*|
 # +-+-+-+-+ +-+-+-+-+-+-+-+-+-+ +-+-+-+-+
 
+# VPC configurations specific to the data-use2 environment are defined here.
+
 locals {
   data-use2-vpc = {
     account_name = "data-use2"

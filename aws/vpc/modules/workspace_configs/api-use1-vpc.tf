@@ -2,12 +2,15 @@
 # |*|*|*|*| |J|A|L|G|R|A|V|E|S| |*|*|*|*|
 # +-+-+-+-+ +-+-+-+-+-+-+-+-+-+ +-+-+-+-+
 
+# VPC configurations specific to the api-use1 environment are defined here.
+
 locals {
   api-use1-vpc = {
     account_name = "api-use1"
     region       = "us-east-1"
     region_code  = "use1"
     vpcs = {
+      # The key for each VPC will be used as the VPC name
       api-use1-01 = {
         ipv4 = {
           cidr_block                                  = "10.2.0.0/16"

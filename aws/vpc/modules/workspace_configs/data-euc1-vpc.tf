@@ -2,12 +2,15 @@
 # |*|*|*|*| |J|A|L|G|R|A|V|E|S| |*|*|*|*|
 # +-+-+-+-+ +-+-+-+-+-+-+-+-+-+ +-+-+-+-+
 
+# VPC configurations specific to the data-euc1 environment are defined here.
+
 locals {
   data-euc1-vpc = {
     account_name = "data-euc1"
     region       = "eu-central-1"
     region_code  = "euc1"
     vpcs = {
+      # The key for each VPC will be used as the VPC name
       data-euc1-01 = {
         ipv4 = {
           cidr_block                                  = "10.5.0.0/16"
