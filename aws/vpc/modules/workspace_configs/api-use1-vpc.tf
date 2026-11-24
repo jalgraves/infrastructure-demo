@@ -38,20 +38,18 @@ locals {
           us-east-1a = {
             subnets = {
               private-use1-az1 = {
-                cidr_block          = "10.2.224.0/21"
-                tier                = "private"
-                route_table         = "api-use1-01-private"
-                nat_gateway_enabled = true
+                cidr_block  = "10.2.224.0/21"
+                tier        = "private"
+                route_table = "api-use1-01-private"
                 nat_gateway = {
                   create = false
                 }
                 tags = {}
               }
               public-use1-az1 = {
-                cidr_block          = "10.2.248.0/22"
-                tier                = "public"
-                route_table         = "api-use1-01-public"
-                nat_gateway_enabled = true
+                cidr_block  = "10.2.248.0/22"
+                tier        = "public"
+                route_table = "api-use1-01-public"
                 nat_gateway = {
                   create = true
                 }
@@ -62,10 +60,9 @@ locals {
           us-east-1b = {
             subnets = {
               private-use1-az2 = {
-                cidr_block          = "10.2.232.0/21"
-                tier                = "private"
-                route_table         = "api-use1-01-private"
-                nat_gateway_enabled = true
+                cidr_block  = "10.2.232.0/21"
+                tier        = "private"
+                route_table = "api-use1-01-private"
                 nat_gateway = {
                   create = false
                 }
@@ -76,12 +73,13 @@ locals {
           us-east-1c = {
             subnets = {
               private-use1-az3 = {
-                cidr_block          = "10.2.240.0/21"
-                tier                = "private"
-                route_table         = "api-use1-01-private"
-                nat_gateway_enabled = true
-                nat_gateway         = { create = false }
-                tags                = {}
+                cidr_block  = "10.2.240.0/21"
+                tier        = "private"
+                route_table = "api-use1-01-private"
+                nat_gateway = {
+                  create = false
+                }
+                tags = {}
               }
             }
           }
@@ -122,7 +120,7 @@ locals {
                 from_port        = 3000
                 to_port          = 3000
                 protocol         = "tcp"
-                cidr_blocks      = ["10.3.0.0/16", "10.4.0.0/16", "10.5.0.0/16", "10.6.0.0/16"]
+                cidr_blocks      = ["10.0.0.0/8"]
                 ipv6_cidr_blocks = null
                 #ipv6_cidr_blocks = ["::/0"]
               }

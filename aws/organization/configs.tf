@@ -2,13 +2,26 @@
 # |*|*|*|*| |J|A|L|G|R|A|V|E|S| |*|*|*|*|
 # +-+-+-+-+ +-+-+-+-+-+-+-+-+-+ +-+-+-+-+
 
+# Configuration for resources that will be managed within the AWS organization
+
 locals {
   organizational_units = {
+    # Groups of AWS accounts, used for applying the same controls to multiple accounts
+    # Each key represents a single organizational unit
+    # The value is an empty object, as the organizational unit itself does not have additional configuration in this context
     api   = {}
     audit = {}
     data  = {}
   }
   accounts = {
+    # Member accounts within the organization
+    # Each key represents a single AWS account within the organization
+    log = {
+      # Audit account for logging purposes
+      email               = var.log_email
+      organizational_unit = "audit"
+      allowed_regions     = ["us-east-1"]
+    }
     api-euw1 = {
       email               = var.api_euw1_email
       organizational_unit = "api"
